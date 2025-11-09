@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pavé droit ABCDEFGH — Détections 3D</title>
+<style>
+  body{margin:0;font-family:Inter,Arial, sans-serif;background:#0f172a;color:#e6eef8;overflow:hidden}
+  .layout{display:flex;height:100vh}
+  .menu{width:300px;padding:16px;box-sizing:border-box;background:#1e293b}
+  .menu h2{margin:0 0 8px 0}
+  .menu label{display:block;margin-top:10px;font-size:13px}
+  .menu input{width:100%;padding:6px;margin-top:6px;border-radius:6px;border:1px solid #334155;background:#071025;color:#e6eef8}
+  .menu button{width:100%;padding:8px;margin-top:8px;border-radius:8px;border:none;background:#2563eb;color:white;font-weight:700;cursor:pointer}
+  .menu button:hover{background:#1e40af}
+  .result{margin-top:12px;padding:8px;border-radius:8px;background:#02111a;color:#a7f3d0;font-weight:700}
+  .stage{flex:1; display:flex; align-items:center; justify-content:center; background:#0b1220}
+  svg{width:100%;height:100%;display:block;overflow:visible}
+  .vertex-label{fill:white;font-weight:700;font-size:14px;text-anchor:middle;dominant-baseline:middle;pointer-events:none}
+  .line3d{stroke-width:3;stroke-linecap:round}
+  .plane{fill:rgba(16,185,129,0.28);stroke:rgba(16,185,129,0.6);stroke-width:1}
+  .small{font-size:12px;color:#cbd5e1;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="layout">
+  <div class="menu">
+    <h2>Objets géométriques</h2>
+
+    <label>Droite 1 (ex : AB)</label>
+    <input id="inputLine1" placeholder="AB">
+
+    <label>Droite 2 (ex : CD)</label>
+    <input id="inputLine2" placeholder="CD">
+
+    <button id="btnLine">Afficher & comparer 2 droites</button>
+
+    <label style="margin-top:12px">Plan 1 (ex : ABC)</label>
+    <input id="inputPlane1" placeholder="ABC">
+
+    <label>Plan 2 (ex : EFG)</label>
+    <input id="inputPlane2" placeholder="EFG">
+
+    <button id="btnPlane">Afficher & comparer 2 plans</button>
+
+    <hr style="border:0;border-top:1px solid rgba(255,255,255,0.05);margin:12px 0">
+
+    <label>Droite (ex : AB)</label>
+    <input id="inputLine3" placeholder="AB">
+    <label>Plan (ex : ABC)</label>
+    <input id="inputPlane3" placeholder="ABC">
+    <button id="btnLinePlane">Afficher & vérifier droite ↔ plan</button>
+
+    <button id="btnClear" style="background:#ef4444;margin-top:10px">Effacer tout</button>
+
+    <label>Milieu d’un segment (ex : AB → M)</label>
+    <input id="inputMidpoint" placeholder="AB M">
+    <button id="btnMidpoint">Ajouter milieu</button>
+
+    <div id="result" class="result">Résultat : —</div>
+    <div class="small">Astuce : fais glisser la scène pour la tourner (drag).</div>
+  </div>
+
+  <div class="stage">
+    <svg id="svgScene" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+</div>
+
+<!-- Bouton maison -->
+<a href="index.html" style="position:absolute; top:10px; left:10px; width:40px; height:40px; display:flex; align-items:center; justify-content:center; background:#2563eb; border-radius:50%; text-decoration:none;">
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="white" viewBox="0 0 24 24">
+    <path d="M12 3l10 9h-3v9h-6v-6h-2v6H5v-9H2z"/>
+  </svg>
+</a>
+
+<script>
+/* ------------------- Setup scène / cube ------------------- */
+const svg = document.getElementById('svgScene');
+function updateSizeVars(){
+  W = 320; H = 200; D = 160;
+  hw = W/2; hh = H/2; hd = D/2;
+  // width/height used for projection center
+  viewW = Math.max(600, svg.clientWidth);
+  viewH = Math.max(400, svg.clientHeight);
+}
+let W,H,D,hw,hh,hd,viewW,viewH;
+updateSizeVars();
+window.addEventListener('resize', ()=>{ updateSizeVars(); drawAll(); });
+
+/* rotation (rad) */
+let rotX = -0.35, rotY = -0.6;
+let dragging = false, lastX=0, lastY=0;
+
+/* sommets 3D (coordonnées centrées) */
+const pts = {
+  A: () => [-120, -80, -80],
+  B: () => [ 120, -80, -80],
+  C: () => [ 0,   140, -80],
+  D: () => [ 0,     0, 140]
+};
+
+/* stockage des objets affichés (spécs) */
+let linesData = [];   // {a,b,color}
+let planesData = [];  // {a,b,c,color}
+
+/* projection perspective simple (retourne [x,y] écran) */
+function project(p){
+  // update p expects numeric array
+  const scale = 1.2;
+  const f = 700;
+  const [x0,y0,z0] = p;
+  // rotation Y
+  const x1 = x0*Math.cos(rotY) - z0*Math.sin(rotY);
+  const z1 = x0*Math.sin(rotY) + z0*Math.cos(rotY);
+  // rotation X
+  const y1 = y0*Math.cos(rotX) - z1*Math.sin(rotX);
+  const z2 = y0*Math.sin(rotX) + z1*Math.cos(rotX);
+  const s = f/(f+z2);
+  const cx = viewW/2, cy = viewH/2;
+  return [cx + x1*s*scale, cy + y1*s*scale];
+}
+
+/* dessine pavé + sommets */
+function drawBox(){
+  svg.innerHTML = ''; // wipe
+  const faces = [
+  ['A','B','C'],  // base
+  ['A','B','D'],  // face 1
+  ['B','C','D'],  // face 2
+  ['C','A','D']   // face 3
+];
+  for(const f of faces){
+    const pts2 = f.map(k => project(pts[k]()));
+    const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    poly.setAttribute('points', pts2.map(p=>p.join(',')).join(' '));
+    poly.setAttribute('fill','rgba(255,255,255,0.05)');
+    poly.setAttribute('stroke','rgba(255,255,255,0.12)');
+    svg.appendChild(poly);
+  }
+  // sommets (text)
+  for(const k of Object.keys(pts)){
+    const [x,y] = project(pts[k]());
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', x);
+    t.setAttribute('y', y);
+    t.setAttribute('class','vertex-label');
+    t.textContent = k;
+    svg.appendChild(t);
+  }
+}
+
+/* (re)dessine tout : boîte puis items stockés */
+function drawAll(){
+  updateSizeVars();
+  drawBox();
+  // redraw planes first so lines appear on top
+  for(const pd of planesData) drawPlaneDOM(pd.a,pd.b,pd.c,pd.color);
+  for(const ld of linesData) drawLineDOM(ld.a,ld.b,ld.color);
+}
+
+/* crée et attache une ligne SVG (retourne élément) */
+function drawLineDOM(a,b,color='#ff3b3b'){
+  const [x1,y1] = project(pts[a]());
+  const [x2,y2] = project(pts[b]());
+  const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+  line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+  line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+  line.setAttribute('stroke', color);
+  line.setAttribute('class','line3d');
+  svg.appendChild(line);
+  return line;
+}
+
+/* crée et attache un plan SVG (triangle) */
+function drawPlaneDOM(a,b,c,color='rgba(16,185,129,0.28)'){
+  const pts2 = [a,b,c].map(k => project(pts[k]()));
+  const poly = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+  poly.setAttribute('points', pts2.map(p=>p.join(',')).join(' '));
+  poly.setAttribute('class','plane');
+  svg.appendChild(poly);
+  return poly;
+}
+
+/* ------------------- Utilitaires vecteurs 3D (sur tableaux) ------------------- */
+function vecFromPts(P,Q){ // P,Q arrays -> Q-P
+  return [Q[0]-P[0], Q[1]-P[1], Q[2]-P[2]];
+}
+function add(u,v){ return [u[0]+v[0], u[1]+v[1], u[2]+v[2]]; }
+function sub(u,v){ return [u[0]-v[0], u[1]-v[1], u[2]-v[2]]; }
+function dot(u,v){ return u[0]*v[0] + u[1]*v[1] + u[2]*v[2]; }
+function cross(u,v){ return [ u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0] ]; }
+function norm(u){ return Math.hypot(u[0],u[1],u[2]); }
+function approxZero(x,eps=1e-6){ return Math.abs(x) < eps; }
+
+/* ------------------- Tests géométriques 3D (formulations demandées) ------------------- */
+
+/* two lines: a1-b1 and a2-b2 are names (e.g. 'A','B') */
+function checkLines3D(a1,b1,a2,b2){
+  const A = pts[a1](), B = pts[b1]();
+  const C = pts[a2](), D = pts[b2]();
+  const u = vecFromPts(A,B); // direction AB
+  const v = vecFromPts(C,D); // direction CD
+  const w0 = vecFromPts(C,A); // C->A (note: earlier used A-C; either ok with sign consis)
+  const crossUV = cross(u,v);
+  const parallel = norm(crossUV) < 1e-6;
+
+  if(parallel){
+    // check if confounded: vector (A-C) is colinear with u (i.e. (A-C) x u = 0)
+    const crossW0U = cross(w0,u);
+    const confondues = norm(crossW0U) < 1e-6;
+    return confondues ? "Les droites sont confondues." : "Les droites sont strictement parallèles.";
+  }
+
+  // non-parallel: test coplanarity: (A-C) ⋅ (u × v) == 0  => coplanaires
+  const coplanaires = Math.abs(dot(w0, crossUV)) < 1e-6;
+
+  if(!coplanaires) return "Les droites sont non coplanaires."; // ce que tu as demandé
+
+  // si coplanaires et non parallèles => sécantes
+  // optionally we could solve parameters t,s to find intersection point, but coplanarity + non-parallel suffices
+  return "Les droites sont sécantes.";
+}
+
+/* two planes: p1=(a1,b1,c1) and p2=(a2,b2,c2) */
+function checkPlanes3D(a1,b1,c1,a2,b2,c2){
+  const A = pts[a1](), B = pts[b1](), C = pts[c1]();
+  const P = pts[a2](), Q = pts[b2](), R = pts[c2]();
+
+  const n1 = cross(vecFromPts(A,B), vecFromPts(A,C));
+  const n2 = cross(vecFromPts(P,Q), vecFromPts(P,R));
+  const crossN = cross(n1,n2);
+  const parallel = norm(crossN) < 1e-6;
+
+  if(parallel){
+    // check if confounded: pick A, check if vector (A-P) orthogonal to n2 => A in plane2
+    const AP = vecFromPts(P,A); // P->A
+    const inPlane = Math.abs(dot(AP, n2)) < 1e-6;
+    return inPlane ? "Les plans sont confondus." : "Les plans sont strictement parallèles.";
+  }
+  return "Les plans sont sécants.";
+}
+
+/* line vs plane: line a-b, plane p,q,r */
+function checkLinePlane3D(a,b,p,q,r){
+  const A = pts[a](), B = pts[b]();
+  const P = pts[p](), Q = pts[q](), R = pts[r]();
+
+  const u = vecFromPts(A,B); // direction of line
+  const n = cross(vecFromPts(P,Q), vecFromPts(P,R)); // normal to plane
+
+  const dotUn = dot(u,n);
+  const A_in = Math.abs(dot(vecFromPts(P,A), n)) < 1e-6;
+
+  if(approxZero(dotUn)){
+    return A_in ? "La droite est incluse dans le plan." : "La droite est strictement parallèle au plan.";
+  }
+  return "La droite est sécante au plan.";
+}
+
+/* ------------------- Interactions boutons / draw management ------------------- */
+function clearData(){
+  linesData = [];
+  planesData = [];
+  drawAll();
+  document.getElementById('result').textContent = "Résultat : —";
+  // clear inputs optional
+}
+
+document.getElementById('btnClear').addEventListener('click', ()=>{
+  clearData();
+  document.getElementById('inputLine1').value='';
+  document.getElementById('inputLine2').value='';
+  document.getElementById('inputPlane1').value='';
+  document.getElementById('inputPlane2').value='';
+  document.getElementById('inputLine3').value='';
+  document.getElementById('inputPlane3').value='';
+});
+
+/* compare two lines and draw them */
+document.getElementById('btnLine').addEventListener('click', ()=>{
+  const s1 = document.getElementById('inputLine1').value.trim().toUpperCase();
+  const s2 = document.getElementById('inputLine2').value.trim().toUpperCase();
+  if(s1.length!==2 || s2.length!==2 || !(s1[0] in pts) || !(s1[1] in pts) || !(s2[0] in pts) || !(s2[1] in pts)){
+    alert('Format droites : ex AB et CD'); return;
+  }
+  // store specs (will be redrawn on rotation)
+  linesData = [{a:s1[0], b:s1[1], color:'#ff4d4d'}, {a:s2[0], b:s2[1], color:'#ffad5c'}];
+  planesData = []; // clear planes to avoid overlap unless user wants both
+  drawAll();
+  const verdict = checkLines3D(s1[0],s1[1],s2[0],s2[1]);
+  document.getElementById('result').textContent = "Résultat : " + verdict;
+});
+
+/* compare two planes and draw them */
+document.getElementById('btnPlane').addEventListener('click', ()=>{
+  const p1 = document.getElementById('inputPlane1').value.trim().toUpperCase();
+  const p2 = document.getElementById('inputPlane2').value.trim().toUpperCase();
+  if(p1.length!==3 || p2.length!==3 || !(p1[0] in pts) || !(p1[1] in pts) || !(p1[2] in pts)
+     || !(p2[0] in pts) || !(p2[1] in pts) || !(p2[2] in pts)){
+    alert('Format plans : ex ABC et EFG'); return;
+  }
+  planesData = [{a:p1[0], b:p1[1], c:p1[2], color:'rgba(16,185,129,0.28)'}, {a:p2[0], b:p2[1], c:p2[2], color:'rgba(96,165,250,0.22)'}];
+  linesData = [];
+  drawAll();
+  const verdict = checkPlanes3D(p1[0],p1[1],p1[2], p2[0],p2[1],p2[2]);
+  document.getElementById('result').textContent = "Résultat : " + verdict;
+});
+
+/* compare line & plane and draw both */
+document.getElementById('btnLinePlane').addEventListener('click', ()=>{
+  const l = document.getElementById('inputLine3').value.trim().toUpperCase();
+  const p = document.getElementById('inputPlane3').value.trim().toUpperCase();
+  if(l.length!==2 || p.length!==3 || !(l[0] in pts) || !(l[1] in pts) || !(p[0] in pts) || !(p[1] in pts) || !(p[2] in pts)){
+    alert('Format : AB et ABC'); return;
+  }
+  linesData = [{a:l[0], b:l[1], color:'#ff4d4d'}];
+  planesData = [{a:p[0], b:p[1], c:p[2], color:'rgba(16,185,129,0.28)'}];
+  drawAll();
+  const verdict = checkLinePlane3D(l[0],l[1], p[0],p[1],p[2]);
+  document.getElementById('result').textContent = "Résultat : " + verdict;
+});
+
+/* draw helpers that use current linesData/planesData arrays */
+function drawAll(){
+  drawBox();
+  // planes first (so lines on top)
+  for(const pd of planesData){
+    drawPlaneDOM(pd.a,pd.b,pd.c,pd.color);
+  }
+  for(const ld of linesData){
+    drawLineDOM(ld.a,ld.b,ld.color);
+  }
+}
+
+/* initial draw */
+drawAll();
+
+/* ------------------- rotation (drag) ------------------- */
+const svgElem = svg;
+svgElem.addEventListener('mousedown', (e)=>{
+  dragging = true;
+  lastX = e.clientX; lastY = e.clientY;
+  e.preventDefault();
+});
+window.addEventListener('mouseup', ()=>{ dragging = false; });
+window.addEventListener('mousemove', (e)=>{
+  if(!dragging) return;
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  rotY += dx * 0.01;
+  rotX += dy * 0.01;
+  // clamp rotX to avoid flipping too far
+  const max = Math.PI/2 - 0.01;
+  rotX = Math.max(-max, Math.min(max, rotX));
+  drawAll();
+});
+
+document.getElementById('btnMidpoint').addEventListener('click', ()=>{
+  const s = document.getElementById('inputMidpoint').value.trim().toUpperCase().split(" ");
+  if(s.length !== 2){
+    alert("Format : AB M"); 
+    return; 
+  }
+  const seg = s[0]; 
+  const midName = s[1];
+  if(!(seg[0] in pts) || !(seg[1] in pts)){
+    alert("Points invalides"); 
+    return; 
+  }
+  const A = pts[seg[0]](), B = pts[seg[1]]();
+  const mid = [(A[0]+B[0])/2, (A[1]+B[1])/2, (A[2]+B[2])/2];
+
+  // ajoute la fonction du nouveau point pour conserver la structure pts[k]()
+  pts[midName] = () => mid;
+
+  drawAll();
+
+  // affiche le label du nouveau point
+  const [x,y] = project(mid);
+  const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+  t.setAttribute('x', x);
+  t.setAttribute('y', y);
+  t.setAttribute('class','vertex-label');
+  t.textContent = midName;
+  svg.appendChild(t);
+});
+
+/* Fix : ne pas déclencher le clear quand on tape dans un input */
+window.addEventListener('keydown', (e)=>{
+  const isTyping = document.activeElement.tagName === "INPUT";
+  if(isTyping) return; // on NE fait rien si l'utilisateur écrit dans un champ
+
+  if(e.key === 'c' || e.key === 'C') {
+    document.getElementById('btnClear').click();
+  }
+});
+
+</script>
+</body>
+</html>

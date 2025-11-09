@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoSolid — Menu</title>
+
+<style>
+  body{
+    margin:0;
+    background:#0f172a;
+    font-family:Arial, sans-serif;
+    color:#e6eef8;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+  }
+
+  h1{
+    font-size:40px;
+    margin-bottom:40px;
+    color:#38bdf8;
+  }
+
+  /* ----- container des cases ----- */
+  .menu{
+    display:flex;
+    flex-direction:row;       /* ✅ alignement horizontal */
+    gap:30px;                 /* espace entre les cases */
+  }
+
+  /* ----- carte ----- */
+  .card{
+    width:170px;
+    height:170px;
+    background:#1e293b;
+    border-radius:14px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:15px;
+    box-sizing:border-box;
+    cursor:pointer;
+    transition:0.25s;
+    border:2px solid transparent;
+  }
+
+  .card:hover{
+    transform:scale(1.07);
+    border-color:#38bdf8;
+  }
+
+  /* ----- image ----- */
+  .card img{
+    width:70px;
+    height:70px;
+    margin-bottom:12px;
+  }
+
+  .card span{
+    font-size:18px;
+    font-weight:bold;
+  }
+</style>
+
+</head>
+<body>
+
+<h1>Géométrie dans l'espace</h1>
+
+<h3>Choisis une figure</h3>
+
+<div class="menu">
+
+  <div class="card" onclick="location.href='pavé.html'">
+    <span>Pavé droit</span>
+  </div>
+
+  <div class="card" onclick="location.href='cube.html'">
+    <span>Cube</span>
+  </div>
+
+  <div class="card" onclick="location.href='tetraede.html'">
+    <span>Tétraèdre</span>
+  </div>
+
+  <div class="card" onclick="location.href='prisme.html'">
+    <span>Prisme</span>
+  </div>
+
+</div>
+
+</body>
+</html>
